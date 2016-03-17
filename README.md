@@ -12,17 +12,17 @@ Install the ec2-costs commandline tool by running
 pip install -e .
 ```
 
-Expose your AWS credentials in the bash environment.
+Configure you ssh credentials through
 
-```bash
-export AWS_ACCESS_KEY_ID=<Your aws access key>
-export AWS_SECRET_ACCESS_KEY=<Your aws secret key>
+``bash
+aws configure --profile <profilename>
+
 ```
 
 If you want to see the costs analysis for reserved instances of `us-west-1` region, then run
 
 ```bash
-ec2-costs us-west-1
+ec2-costs us-west-1 -p profile1 -p profile2
 ```
 
 You will see two tables like this
