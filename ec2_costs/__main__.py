@@ -55,7 +55,7 @@ def main(region, show_expirations=False, profiles=None):
         'Zone',
         'Tenancy',
         'Covered',
-        'Instnace ID',
+        'Instance ID',
         'Name',
         'Monthly Cost',
     ]
