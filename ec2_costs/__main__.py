@@ -196,7 +196,8 @@ def main(region, show_expirations=False, profiles=None):
         'Amount you saved by using reserved:',
         format_price(ec2_all_on_demand_total_cost - ec2_total_cost)
     )
-    print(
+    if ec2_all_on_demand_total_cost != 0:
+        print(
         'Percentage you saved by using reserved:',
         '% {:,.2f}'.format(
             ((ec2_all_on_demand_total_cost - ec2_total_cost) / ec2_all_on_demand_total_cost) * 100
