@@ -21,7 +21,8 @@ def format_price(price):
 @click.command()
 @click.argument('region', nargs=1)
 @click.option('--show-expirations/--no-show-expirations', help='Show future RI expirations')
-def main(region, show_expirations=False):
+@click.option('--profiles','-p', multiple=True, help='Combine usage from comma separated')
+def main(region, show_expirations=False, profiles=None):
     od_price_table = get_price_table(LINUX_ON_DEMAND_PRICE_URL)
     od_price_mapping = price_table_to_price_mapping(od_price_table)
     pre_od_price_table = get_price_table(LINUX_ON_DEMAND_PREVIOUS_GEN_PRICE_URL)
@@ -38,11 +39,17 @@ def main(region, show_expirations=False):
     ec2_total_cost = 0
     # ec2 instance totoal cost if all are using on-demand
     ec2_all_on_demand_total_cost = 0
+    conns = []
+    if profiles:    
+    	for p in profiles:
+	    conns.append(boto.ec2.connect_to_region(region,profile_name=p))
+    else:
+        conns.append(boto.ec2.connect_to_region(region))
 
-    conn = boto.ec2.connect_to_region(region)
-    result = get_reserved_analysis(conn)
+    result = get_reserved_analysis(conns)
 
     columns = [
+	'Account',
         'Instance type',
         'VPC',
         'Zone',
@@ -57,9 +64,9 @@ def main(region, show_expirations=False):
         table.align[key] = 'l'
     table.align['Monthly Cost'] = 'r'
 
-    for (instance_type, vpc, zone, tenancy), instances in result['instance_items']:
+    for (instance_type, zone, tenancy), instances in result['instance_items']:
         covered_count = 0
-        for _, covered_price, _ in instances:
+        for _, _, _, covered_price, _ in instances:
             if covered_price is not None:
                 covered_count += 1
 
@@ -70,24 +77,30 @@ def main(region, show_expirations=False):
 
         # cal total cost
         total_cost = 0
-        for _, covered_price, _ in instances:
+        for _, _, _, covered_price, _ in instances:
             unit_cost = od_unit_cost
             if covered_price is not None:
                 unit_cost = decimal.Decimal(covered_price)
             total_cost += unit_cost * month_hours
 
         table.add_row([
+	    '',
             instance_type,
-            vpc,
+            '',
             zone,
             tenancy,
             '{} / {}'.format(covered_count, len(instances))
         ] + ([''] * 2) + [format_price(total_cost)])
-        for instance_id, covered_price, name in instances:
+        for account, vpc_id, instance_id, covered_price, name in instances:
             unit_cost = od_unit_cost
             if covered_price is not None:
                 unit_cost = decimal.Decimal(covered_price)
-            table.add_row(([''] * 4) + [
+            table.add_row([
+		account if account else 'default', 
+		'', 
+		vpc_id, 
+		'', 
+		'',
                 covered_price is not None,
                 instance_id,
                 name,
@@ -101,6 +114,7 @@ def main(region, show_expirations=False):
     print(table)
 
     columns = [
+	'Account',
         'Instance type',
         'VPC',
         'Zone',
@@ -113,16 +127,21 @@ def main(region, show_expirations=False):
         table.align[key] = 'l'
     table.align['Monthly Cost'] = 'r'
     not_used_reserved = result['not_used_reserved_instances'].iteritems()
-    for (instance_type, vpc, zone, tenancy), instances in not_used_reserved:
+    for (instance_type, is_vpc, zone, tenancy), instances in not_used_reserved:
         unit_cost = 0
         if instances:
             unit_cost = decimal.Decimal(
-                instances[0].recurring_charges[0].amount
+                instances[0][1].recurring_charges[0].amount
             )
         reserved_cost = len(instances) * unit_cost * month_hours
+	if len(instances) > 0:
+	    account = instances[0][0]
+	else:
+	     account = 'default'
         table.add_row([
+	    account,
             instance_type,
-            vpc,
+            is_vpc,
             zone,
             tenancy,
             len(instances),
@@ -135,6 +154,7 @@ def main(region, show_expirations=False):
     if show_expirations:
         print('#' * 10, 'Imminent RI expirations', '#' * 10)
         columns = [
+	    'Account',
             'Instance type',
             'VPC',
             'Zone',
@@ -146,12 +166,13 @@ def main(region, show_expirations=False):
         all_reserved_groups = result['all_reserved_groups'].iteritems()
         for (instance_type, vpc, zone, tenancy), instances in all_reserved_groups:
             skip_rows = 0
-            for instance in instances:
+            for (account, instance) in instances:
                 expiration = None
                 if instance.state == "active" and skip_rows == 0:
                     d = datetime.datetime.strptime( instance.start, "%Y-%m-%dT%H:%M:%S.%fZ" )
                     expiration = d + datetime.timedelta(seconds=instance.duration)
                     table.add_row([
+			account if account else 'default',
                         instance_type,
                         vpc,
                         zone,

@@ -47,7 +47,7 @@ def price_table_to_price_mapping(table):
     return region_price_mapping
 
 
-def get_reserved_groups(conn):
+def get_reserved_groups(conns):
     """Get reserved instance groups, return a dict mapping from
 
         (instance type, VPC or not, Availability zone, Tenancy)
@@ -58,21 +58,22 @@ def get_reserved_groups(conn):
 
     """
     reserved_groups = collections.defaultdict(list)
-    for reserved in conn.get_all_reserved_instances():
-        if reserved.state != 'active':
-            continue
-        key = (
-            reserved.instance_type,
-            'VPC' in reserved.description,
-            reserved.availability_zone,
-            reserved.instance_tenancy,
-        )
-        for _ in range(reserved.instance_count):
-            reserved_groups[key].append(reserved)
+    for conn in conns:
+        for reserved in conn.get_all_reserved_instances():
+            if reserved.state != 'active':
+                continue
+            key = (
+                reserved.instance_type,
+                'VPC' in reserved.description,
+                reserved.availability_zone,
+                reserved.instance_tenancy,
+            )
+            for _ in range(reserved.instance_count):
+                reserved_groups[key].append((conn.profile_name,reserved))
     return reserved_groups
 
 
-def get_instance_groups(conn):
+def get_instance_groups(conns):
     """Get instance groups, return a dict mapping from
 
         (instance type, VPC ID, Availability zone, Tenancy)
@@ -83,16 +84,19 @@ def get_instance_groups(conn):
 
     """
     instance_groups = collections.defaultdict(list)
-    for instance in conn.get_only_instances():
-        if instance.state != 'running':
-            continue
-        key = (
-            instance.instance_type,
-            instance.vpc_id,
-            instance.placement,
-            instance.placement_tenancy,
-        )
-        instance_groups[key].append(instance)
+    for conn in conns:
+        for instance in conn.get_only_instances():
+            if instance.state != 'running':
+                continue
+            if isinstance(instance.spot_instance_request_id, basestring):
+                continue
+            key = (
+                instance.instance_type,
+		instance.vpc_id is not None,
+		instance.placement,
+                instance.placement_tenancy,
+            )
+            instance_groups[key].append((conn.profile_name,instance.vpc_id,instance))
 
     sorted_groups = sorted(
         instance_groups.iteritems(),
@@ -121,29 +125,29 @@ def _match_reserved_instances(reserved_groups, itype, in_vpc, zone, tenancy):
             return ri
 
 
-def get_reserved_analysis(conn):
-    all_reserved_groups = get_reserved_groups(conn)
+def get_reserved_analysis(conns):
+    all_reserved_groups = get_reserved_groups(conns)
     # duplicate the reserved_groups collection so we can destructively modify it when finding matches
-    reserved_groups = get_reserved_groups(conn)
-    instance_groups = get_instance_groups(conn)
+    reserved_groups = get_reserved_groups(conns)
+    instance_groups = get_instance_groups(conns)
 
     instance_items = []
-    for (itype, vpc_id, zone, tenancy), values in instance_groups:
+    for (itype, is_in_vpc, zone, tenancy), values in instance_groups:
         instances = []
-        for instance in values:
+        for (account, vpc_id, instance) in values:
             matched = _match_reserved_instances(
                 reserved_groups=reserved_groups,
                 itype=itype,
-                in_vpc=vpc_id is not None,
+                in_vpc=is_in_vpc,
                 zone=zone,
                 tenancy=tenancy,
             )
             covered_price = None
             if matched:
-                covered_price = matched.recurring_charges[0].amount
-            instances.append((instance.id, covered_price, instance.tags.get('Name')))
+                covered_price = matched[1].recurring_charges[0].amount
+            instances.append((account, vpc_id, instance.id, covered_price, instance.tags.get('Name')))
         instance_items.append((
-            (itype, vpc_id, zone, tenancy),
+            (itype, zone, tenancy),
             instances,
         ))
 
