@@ -16,7 +16,6 @@ Configure you ssh credentials through
 
 ``bash
 aws configure --profile <profilename>
-
 ```
 
 If you want to see the costs analysis for reserved instances of `us-west-1` region, then run
