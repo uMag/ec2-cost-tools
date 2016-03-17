@@ -14,7 +14,7 @@ pip install -e .
 
 Configure you ssh credentials through
 
-``bash
+```bash
 aws configure --profile <profilename>
 ```
 
