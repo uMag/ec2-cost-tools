@@ -130,7 +130,6 @@ def get_reserved_analysis(conns):
     # duplicate the reserved_groups collection so we can destructively modify it when finding matches
     reserved_groups = get_reserved_groups(conns)
     instance_groups = get_instance_groups(conns)
-
     instance_items = []
     for (itype, is_in_vpc, zone, tenancy), values in instance_groups:
         instances = []
@@ -143,8 +142,10 @@ def get_reserved_analysis(conns):
                 tenancy=tenancy,
             )
             covered_price = None
-            if matched:
+            if matched and matched[1].recurring_charges:
                 covered_price = matched[1].recurring_charges[0].amount
+            else:
+                covered_price = 0
             instances.append((account, vpc_id, instance.id, covered_price, instance.tags.get('Name')))
         instance_items.append((
             (itype, zone, tenancy),
